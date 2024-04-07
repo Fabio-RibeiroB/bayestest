@@ -1,1 +1,1 @@
-from .bayestest import createTest
+from .bayestest import *
