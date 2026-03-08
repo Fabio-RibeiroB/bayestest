@@ -42,10 +42,11 @@ def _comparison_lines(comp: ComparisonResult, method: str) -> list[str]:
             ]
         )
     else:
+        alpha_label = "Alpha spent" if method == "frequentist_sequential" else "Alpha threshold"
         lines.extend(
             [
                 f"  - p-value: {_fmt_float(comp.p_value, 6)}",
-                f"  - Alpha spent: {_fmt_float(comp.alpha_spent, 6)}",
+                f"  - {alpha_label}: {_fmt_float(comp.alpha_spent, 6)}",
                 f"  - Significant now: `{comp.significant}`",
             ]
         )

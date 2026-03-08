@@ -8,6 +8,7 @@ It supports:
 - Bayesian conversion-rate decisions (Beta-Binomial)
 - Bayesian ARPU probability-to-win from aggregate revenue stats
 - Frequentist sequential decisions (O'Brien-Fleming alpha spending)
+- Standard frequentist fixed-horizon tests (z-test for conversion, Welch's t-test for ARPU)
 - Multi-variant (`A/B/n`) comparisons against one control
 - Guardrail checks (latency, bounce rate, error rate, etc.)
 - SRM detection (sample ratio mismatch) for data quality
@@ -133,7 +134,7 @@ bayestest duration \
 
 Top-level fields:
 - `experiment_name` (str)
-- `method` (`"bayesian"` or `"frequentist_sequential"`)
+- `method` (`"bayesian"`, `"frequentist_sequential"`, or `"frequentist_ttest"`)
 - `primary_metric` (`"conversion_rate"` or `"arpu"`)
 - `alpha` (float, default `0.05`)
 - `look_index` and `max_looks` (ints, sequential mode)

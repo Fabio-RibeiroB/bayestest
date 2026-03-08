@@ -60,8 +60,10 @@ def validate_input(inp: AnalysisInput) -> None:
     if inp.alpha <= 0 or inp.alpha >= 1:
         raise ValueError("alpha must be in (0, 1).")
 
-    if inp.method not in {"bayesian", "frequentist_sequential"}:
-        raise ValueError("method must be 'bayesian' or 'frequentist_sequential'.")
+    if inp.method not in {"bayesian", "frequentist_sequential", "frequentist_ttest"}:
+        raise ValueError(
+            "method must be 'bayesian', 'frequentist_sequential', or 'frequentist_ttest'."
+        )
     if inp.primary_metric not in {"conversion_rate", "arpu"}:
         raise ValueError("primary_metric must be 'conversion_rate' or 'arpu'.")
 
@@ -88,11 +90,16 @@ def analyze(inp: AnalysisInput) -> AnalysisResult:
             comparisons = analyze_bayesian_conversion(inp, control, treatments)
         else:
             comparisons = analyze_bayesian_arpu(inp, control, treatments)
-    else:
+    elif inp.method == "frequentist_sequential":
         if inp.primary_metric == "conversion_rate":
             comparisons = analyze_frequentist_sequential_conversion(inp, control, treatments)
         else:
             comparisons = analyze_frequentist_sequential_arpu(inp, control, treatments)
+    else:
+        if inp.primary_metric == "conversion_rate":
+            comparisons = analyze_frequentist_fixed_conversion(inp, control, treatments)
+        else:
+            comparisons = analyze_frequentist_ttest_arpu(inp, control, treatments)
 
     recommendation = recommend(inp, comparisons, guardrails_passed, srm_result)
 
@@ -384,6 +391,97 @@ def analyze_frequentist_sequential_arpu(
     return out
 
 
+def analyze_frequentist_fixed_conversion(
+    inp: AnalysisInput, control: VariantInput, treatments: list[VariantInput]
+) -> list[ComparisonResult]:
+    out: list[ComparisonResult] = []
+
+    for treatment in treatments:
+        p_value, _, se = two_proportion_test(
+            control.conversions,
+            control.visitors,
+            treatment.conversions,
+            treatment.visitors,
+        )
+        significant = p_value <= inp.alpha
+
+        control_rate = control.conversions / control.visitors
+        treatment_rate = treatment.conversions / treatment.visitors
+
+        z_crit = NormalDist().inv_cdf(1 - inp.alpha / 2)
+        diff = treatment_rate - control_rate
+        ci_low = diff - z_crit * se
+        ci_high = diff + z_crit * se
+
+        out.append(
+            ComparisonResult(
+                treatment=treatment.name,
+                control=control.name,
+                metric="conversion_rate",
+                control_rate=control_rate,
+                treatment_rate=treatment_rate,
+                absolute_lift=diff,
+                relative_lift=diff / max(control_rate, 1e-12),
+                p_value=float(p_value),
+                alpha_spent=float(inp.alpha),
+                significant=bool(significant),
+                ci_low=float(ci_low),
+                ci_high=float(ci_high),
+            )
+        )
+
+    return out
+
+
+def analyze_frequentist_ttest_arpu(
+    inp: AnalysisInput, control: VariantInput, treatments: list[VariantInput]
+) -> list[ComparisonResult]:
+    out: list[ComparisonResult] = []
+
+    for treatment in treatments:
+        c_mean, c_var = mean_and_var_from_aggregates(
+            control.visitors,
+            float(control.revenue_sum or 0.0),
+            float(control.revenue_sum_squares or 0.0),
+        )
+        t_mean, t_var = mean_and_var_from_aggregates(
+            treatment.visitors,
+            float(treatment.revenue_sum or 0.0),
+            float(treatment.revenue_sum_squares or 0.0),
+        )
+
+        p_value, df, se = welch_t_test(
+            c_mean,
+            c_var,
+            control.visitors,
+            t_mean,
+            t_var,
+            treatment.visitors,
+        )
+        significant = p_value <= inp.alpha
+        diff = t_mean - c_mean
+        t_crit = inverse_student_t_cdf(1 - inp.alpha / 2, df)
+
+        out.append(
+            ComparisonResult(
+                treatment=treatment.name,
+                control=control.name,
+                metric="arpu",
+                control_rate=c_mean,
+                treatment_rate=t_mean,
+                absolute_lift=diff,
+                relative_lift=diff / max(c_mean, 1e-12),
+                p_value=float(p_value),
+                alpha_spent=float(inp.alpha),
+                significant=bool(significant),
+                ci_low=float(diff - t_crit * se),
+                ci_high=float(diff + t_crit * se),
+            )
+        )
+
+    return out
+
+
 def two_proportion_test(x1: int, n1: int, x2: int, n2: int) -> tuple[float, float, float]:
     p1 = x1 / n1
     p2 = x2 / n2
@@ -441,6 +539,133 @@ def sample_mean_posterior(
     sigma2_samples = beta_n / np.clip(gamma_samples, 1e-18, None)
     mu_samples = rng.normal(mu_n, np.sqrt(np.clip(sigma2_samples / kappa_n, 1e-18, None)))
     return mu_samples
+
+
+def welch_t_test(
+    mean1: float,
+    var1: float,
+    n1: int,
+    mean2: float,
+    var2: float,
+    n2: int,
+) -> tuple[float, float, float]:
+    se2 = max((var1 / max(n1, 1)) + (var2 / max(n2, 1)), 1e-18)
+    se = math.sqrt(se2)
+    t_value = (mean2 - mean1) / se
+
+    num = se2 * se2
+    den_left = 0.0 if n1 <= 1 else ((var1 / n1) ** 2) / (n1 - 1)
+    den_right = 0.0 if n2 <= 1 else ((var2 / n2) ** 2) / (n2 - 1)
+    den = max(den_left + den_right, 1e-18)
+    df = max(num / den, 1.0)
+
+    cdf = student_t_cdf(abs(t_value), df)
+    p_value = 2 * (1 - cdf)
+    return float(min(max(p_value, 0.0), 1.0)), float(df), float(se)
+
+
+def student_t_cdf(t_value: float, degrees_freedom: float) -> float:
+    if degrees_freedom <= 0:
+        raise ValueError("degrees_freedom must be > 0")
+    if t_value == 0:
+        return 0.5
+
+    x = degrees_freedom / (degrees_freedom + (t_value * t_value))
+    reg = regularized_incomplete_beta(degrees_freedom / 2.0, 0.5, x)
+    if t_value > 0:
+        return 1 - 0.5 * reg
+    return 0.5 * reg
+
+
+def inverse_student_t_cdf(probability: float, degrees_freedom: float) -> float:
+    if probability <= 0 or probability >= 1:
+        raise ValueError("probability must be in (0, 1)")
+
+    if probability == 0.5:
+        return 0.0
+
+    sign = 1.0
+    target = probability
+    if probability < 0.5:
+        sign = -1.0
+        target = 1.0 - probability
+
+    low = 0.0
+    high = 32.0
+    while student_t_cdf(high, degrees_freedom) < target:
+        high *= 2.0
+        if high > 1e6:
+            break
+
+    for _ in range(80):
+        mid = 0.5 * (low + high)
+        if student_t_cdf(mid, degrees_freedom) < target:
+            low = mid
+        else:
+            high = mid
+
+    return sign * (0.5 * (low + high))
+
+
+def regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+
+    bt = math.exp(
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + (a * math.log(x))
+        + (b * math.log(1 - x))
+    )
+
+    if x < (a + 1) / (a + b + 2):
+        return bt * beta_continued_fraction(a, b, x) / a
+    return 1 - (bt * beta_continued_fraction(b, a, 1 - x) / b)
+
+
+def beta_continued_fraction(a: float, b: float, x: float) -> float:
+    qab = a + b
+    qap = a + 1.0
+    qam = a - 1.0
+
+    c = 1.0
+    d = 1.0 - (qab * x / qap)
+    if abs(d) < 1e-30:
+        d = 1e-30
+    d = 1.0 / d
+    h = d
+
+    for m in range(1, 401):
+        m2 = 2 * m
+
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        c = 1.0 + aa / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        d = 1.0 / d
+        h *= d * c
+
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        c = 1.0 + aa / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+
+        if abs(delta - 1.0) < 1e-12:
+            break
+
+    return h
 
 
 def recommend(

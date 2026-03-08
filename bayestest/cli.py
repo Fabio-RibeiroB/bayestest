@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bayestest",
         description=(
-            "Agent-friendly CLI for Bayesian and frequentist sequential A/B/n decisions."
+            "Agent-friendly CLI for Bayesian and frequentist (sequential or fixed-horizon) A/B/n decisions."
         ),
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_cmd = sub.add_parser(
         "analyze",
         help="Analyze one JSON experiment payload.",
-        description="Run Bayesian or frequentist sequential analysis from a structured JSON payload.",
+        description="Run Bayesian or frequentist analysis (sequential or fixed-horizon) from a structured JSON payload.",
     )
     analyze_cmd.add_argument("--input", required=True, help="Path to input JSON payload.")
     analyze_cmd.add_argument(

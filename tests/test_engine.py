@@ -123,6 +123,57 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(result.comparisons), 2)
         self.assertEqual(result.recommendation.action, "ship_treatment_b")
 
+    def test_frequentist_ttest_arpu_ship_for_clear_winner(self):
+        payload = {
+            "experiment_name": "arpu_ttest_exp",
+            "method": "frequentist_ttest",
+            "primary_metric": "arpu",
+            "alpha": 0.05,
+            "variants": [
+                {
+                    "name": "control",
+                    "visitors": 4000,
+                    "conversions": 200,
+                    "revenue_sum": 8000.0,
+                    "revenue_sum_squares": 32000.0,
+                    "is_control": True,
+                },
+                {
+                    "name": "treatment",
+                    "visitors": 4000,
+                    "conversions": 220,
+                    "revenue_sum": 9600.0,
+                    "revenue_sum_squares": 45200.0,
+                    "is_control": False,
+                },
+            ],
+        }
+
+        result = analyze(parse_payload(payload))
+        comp = result.comparisons[0]
+        self.assertEqual(comp.metric, "arpu")
+        self.assertIsNotNone(comp.p_value)
+        self.assertLess(comp.p_value, 0.05)
+        self.assertEqual(result.recommendation.action, "ship_treatment")
+
+    def test_frequentist_ttest_conversion_uses_fixed_alpha(self):
+        payload = {
+            "experiment_name": "conversion_fixed_exp",
+            "method": "frequentist_ttest",
+            "primary_metric": "conversion_rate",
+            "alpha": 0.05,
+            "variants": [
+                {"name": "control", "visitors": 10000, "conversions": 450, "is_control": True},
+                {"name": "treatment", "visitors": 10000, "conversions": 520, "is_control": False},
+            ],
+        }
+
+        result = analyze(parse_payload(payload))
+        comp = result.comparisons[0]
+        self.assertAlmostEqual(comp.alpha_spent, 0.05, places=8)
+        self.assertTrue(comp.significant)
+        self.assertEqual(result.recommendation.action, "ship_treatment")
+
 
 if __name__ == "__main__":
     unittest.main()
