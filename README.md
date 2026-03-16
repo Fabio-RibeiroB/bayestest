@@ -15,19 +15,20 @@ It supports:
 - Markdown report generation for human review
 - CSV/XLSX ingestion with mapping files
 
-## Install (uv-first)
+## Install (uv)
 
 ```bash
-source $HOME/.local/bin/env
-uv venv .venv
-uv pip install -e .
+uv sync --group test
 ```
+
+Run commands through `uv` so the managed environment is always used.
 
 ## Requirements Checklist
 
 - Python `>=3.9`
 - Dependencies: `numpy>=1.22`, `openpyxl>=3.1.0`
-- CLI installed (`bayestest --help` works)
+- Test dependencies available via `uv sync --group test`
+- CLI available via `uv run bayestest --help`
 - Exactly one control variant in analysis inputs
 - Required variant fields: `name`, `visitors`, `conversions`
 - ARPU mode also requires: `revenue_sum`, `revenue_sum_squares`
@@ -38,13 +39,13 @@ uv pip install -e .
 Generate an input template:
 
 ```bash
-bayestest example-input > input.json
+uv run bayestest example-input > input.json
 ```
 
 Run analysis and write both JSON + report:
 
 ```bash
-bayestest analyze \
+uv run bayestest analyze \
   --input input.json \
   --output output.json \
   --report report.md
@@ -53,7 +54,7 @@ bayestest analyze \
 Analyze directly from CSV/XLSX:
 
 ```bash
-bayestest analyze-file \
+uv run bayestest analyze-file \
   --input experiment.xlsx \
   --mapping mapping.json \
   --sheet Sheet1 \
@@ -70,15 +71,15 @@ make demo
 Check environment readiness:
 
 ```bash
-bayestest doctor
-bayestest doctor --json
-bayestest doctor --strict
+uv run bayestest doctor
+uv run bayestest doctor --json
+uv run bayestest doctor --strict
 ```
 
 Estimate duration from assumptions:
 
 ```bash
-bayestest duration \
+uv run bayestest duration \
   --method frequentist \
   --baseline-rate 0.04 \
   --relative-mde 0.05 \
@@ -90,7 +91,7 @@ bayestest duration \
 Estimate Bayesian duration (assurance simulation):
 
 ```bash
-bayestest duration \
+uv run bayestest duration \
   --method bayesian \
   --baseline-rate 0.04 \
   --relative-mde 0.05 \
@@ -102,19 +103,27 @@ bayestest duration \
 Analyze pasted variant text:
 
 ```bash
-bayestest analyze-text \
-  --text \"Variant A: 100 conversions out of 2000 visitors\nVariant B: 125 conversions out of 2000 visitors\" \
+uv run bayestest analyze-text \
+  --text "Variant A: 100 conversions out of 2000 visitors\nVariant B: 125 conversions out of 2000 visitors" \
   --experiment-name pasted_example
 ```
 
 Estimate duration from CSV/XLSX:
 
 ```bash
-bayestest example-duration-mapping > duration_mapping.json
-bayestest duration \
+uv run bayestest example-duration-mapping > duration_mapping.json
+uv run bayestest duration \
   --input duration_inputs.xlsx \
   --mapping duration_mapping.json \
   --sheet Sheet1
+```
+
+## Development
+
+Run the test suite:
+
+```bash
+uv run pytest
 ```
 
 ## Agent Playbook
@@ -125,7 +134,7 @@ bayestest duration \
 4. Read `recommendation.action`, `decision_confidence`, and `risk_flags`.
 5. If `action=continue_collecting_data`, schedule next look.
 6. If `action=investigate_data_quality`, resolve SRM/tracking before any ship decision.
-7. For planning questions (\"how long should we run?\"), run `bayestest duration`.
+7. For planning questions ("how long should we run?"), run `bayestest duration`.
 8. For pasted stats messages, run `bayestest analyze-text` to convert free text into analysis.
 9. For spreadsheet planning assumptions, run `bayestest duration --input ... --mapping ...`.
 
@@ -166,7 +175,7 @@ For `primary_metric: "arpu"`, each variant also needs:
 Generate mapping template:
 
 ```bash
-bayestest example-mapping > mapping.json
+uv run bayestest example-mapping > mapping.json
 ```
 
 Mapping keys:

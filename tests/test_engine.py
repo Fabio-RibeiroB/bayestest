@@ -1,6 +1,17 @@
+import math
 import unittest
 
-from bayestest.engine import analyze, parse_payload
+from scipy.stats import chi2
+from statsmodels.stats.proportion import proportions_ztest
+
+from bayestest.engine import (
+    analyze,
+    evaluate_srm,
+    mean_and_var_from_aggregates,
+    parse_payload,
+    two_proportion_test,
+)
+from bayestest.models import VariantInput
 
 
 class EngineTests(unittest.TestCase):
@@ -122,6 +133,49 @@ class EngineTests(unittest.TestCase):
         result = analyze(parse_payload(payload))
         self.assertEqual(len(result.comparisons), 2)
         self.assertEqual(result.recommendation.action, "ship_treatment_b")
+
+    def test_srm_matches_scipy_chi_square_tail(self):
+        variants = [
+            VariantInput(name="control", visitors=5200, conversions=260, is_control=True),
+            VariantInput(name="treatment", visitors=4800, conversions=250, is_control=False),
+        ]
+
+        result = evaluate_srm(variants)
+
+        total = 5200 + 4800
+        expected = total / 2
+        chi2_stat = ((5200 - expected) ** 2) / expected + ((4800 - expected) ** 2) / expected
+        expected_p_value = chi2.sf(chi2_stat, df=1)
+
+        self.assertAlmostEqual(result.p_value, expected_p_value, places=4)
+        self.assertEqual(result.passed, expected_p_value >= 0.001)
+
+    def test_two_proportion_test_matches_statsmodels(self):
+        x1, n1 = 500, 10_000
+        x2, n2 = 650, 10_000
+
+        p_value, z_value, unpooled_se = two_proportion_test(x1, n1, x2, n2)
+        expected_z, expected_p_value = proportions_ztest([x2, x1], [n2, n1])
+
+        p1 = x1 / n1
+        p2 = x2 / n2
+        expected_unpooled_se = math.sqrt(
+            (p1 * (1 - p1) / n1) + (p2 * (1 - p2) / n2)
+        )
+
+        self.assertAlmostEqual(z_value, expected_z, places=10)
+        self.assertAlmostEqual(p_value, expected_p_value, places=10)
+        self.assertAlmostEqual(unpooled_se, expected_unpooled_se, places=10)
+
+    def test_mean_and_var_from_aggregates_matches_hand_worked_example(self):
+        mean, variance = mean_and_var_from_aggregates(
+            n=4,
+            value_sum=14.0,
+            value_sum_squares=54.0,
+        )
+
+        self.assertAlmostEqual(mean, 3.5)
+        self.assertAlmostEqual(variance, 5 / 3)
 
 
 if __name__ == "__main__":

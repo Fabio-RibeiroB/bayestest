@@ -9,11 +9,18 @@ description = "CLI and Python toolkit for Bayesian and sequential A/B/n decision
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-  {name = "Fabio-RibeiroB", email = "bradyfr@proton.me"}
+  { name = "Fabio-RibeiroB", email = "bradyfr@proton.me" },
 ]
 dependencies = [
   "numpy>=1.22",
   "openpyxl>=3.1.0",
+]
+
+[dependency-groups]
+test = [
+  "pytest>=8.0",
+  "scipy>=1.11",
+  "statsmodels>=0.14",
 ]
 
 [project.scripts]
@@ -22,3 +29,6 @@ bayestest = "bayestest.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["bayestest*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
